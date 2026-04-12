@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# DVC
+dvc_storage/
+/data/raw/*.csv
+/data/processed/*.csv
+/data/predictions/*.csv
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker/volumes/
+
+# Misc
+*.log
+.env

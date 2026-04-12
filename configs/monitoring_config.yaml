@@ -1,0 +1,17 @@
+drift:
+  reference_data: "data/processed/reference.csv"
+  current_data: "data/predictions/recent.csv"
+  report_output: "reports/drift_report.html"
+
+  # Kolmogorov-Smirnov threshold for data drift
+  drift_threshold: 0.1
+
+  # Minimum number of predictions before checking drift
+  min_samples: 100
+
+retrain:
+  auto_retrain: true
+  cooldown_hours: 24  # Don't retrain more frequently than this
+
+schedule:
+  interval_minutes: 60  # How often to check for drift
