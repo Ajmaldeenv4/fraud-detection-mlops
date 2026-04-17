@@ -38,3 +38,12 @@ docker/volumes/
 # Misc
 *.log
 .env
+
+# Claude Code
+.claude/
+
+# Evidently drift reports (generated at runtime)
+reports/
+
+# Retrain log (runtime state)
+data/retrain_log.json

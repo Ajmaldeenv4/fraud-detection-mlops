@@ -1,0 +1,54 @@
+services:
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.12.1
+    ports:
+      - "5001:5000"
+    volumes:
+      - ../mlruns:/mlflow/mlruns
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:////mlflow/mlruns/mlflow.db
+      --default-artifact-root /mlflow/mlruns
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../mlruns:/app/mlruns
+      - ../data:/app/data
+      - ../configs:/app/configs
+      - ../reports:/app/reports
+    environment:
+      - MLFLOW_TRACKING_URI=file:///app/mlruns
+    depends_on:
+      - mlflow
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana-oss:10.4.0
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../dashboards:/var/lib/grafana/dashboards
+      - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - ./grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=fraud123
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    restart: unless-stopped
