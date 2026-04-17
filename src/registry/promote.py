@@ -1,10 +1,11 @@
 """Model registry and promotion — MLflow Model Registry management."""
 
 import os
-import yaml
 from pathlib import Path
-from mlflow.tracking import MlflowClient
+
 import mlflow
+import yaml
+from mlflow.tracking import MlflowClient
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_URI = f"file:///{PROJECT_ROOT / 'mlruns'}".replace("\\", "/")
@@ -143,6 +144,7 @@ def promote_if_better(
 if __name__ == "__main__":
     prod = get_production_model_version()
     if prod:
-        print(f"Current Production: v{prod['version']}, PR-AUC: {prod['metrics'].get('val_pr_auc', 'N/A')}")
+        pr_auc = prod["metrics"].get("val_pr_auc", "N/A")
+        print(f"Current Production: v{prod['version']}, PR-AUC: {pr_auc}")
     else:
         print("No Production model registered yet.")

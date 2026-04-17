@@ -3,7 +3,6 @@
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.linear_model import LogisticRegression
 
 from src.training.imbalance import apply_smote, compute_scale_pos_weight
 
@@ -46,7 +45,9 @@ class TestSplit:
         for split, name in [(train, "train"), (val, "val"), (test, "test")]:
             ratio = split["Class"].mean()
             # Allow some tolerance due to small sample size
-            assert abs(ratio - original_ratio) < 0.05, f"{name} ratio {ratio} too far from {original_ratio}"
+            assert abs(ratio - original_ratio) < 0.05, (
+                f"{name} ratio {ratio} too far from {original_ratio}"
+            )
 
     def test_no_data_leakage(self, sample_raw_data):
         from src.data.split import stratified_split

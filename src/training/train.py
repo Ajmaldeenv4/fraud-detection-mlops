@@ -1,18 +1,18 @@
 """Model training module — LogisticRegression and XGBoost."""
 
 import os
-import yaml
-import numpy as np
-import pandas as pd
 from pathlib import Path
-from sklearn.linear_model import LogisticRegression
-from xgboost import XGBClassifier
+
 import mlflow
 import mlflow.sklearn
 import mlflow.xgboost
+import pandas as pd
+import yaml
+from sklearn.linear_model import LogisticRegression
+from xgboost import XGBClassifier
 
+from src.training.evaluate import evaluate_model, log_confusion_matrix, log_metrics_to_mlflow
 from src.training.imbalance import apply_smote, compute_scale_pos_weight
-from src.training.evaluate import evaluate_model, log_metrics_to_mlflow, log_confusion_matrix
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_URI = f"file:///{PROJECT_ROOT / 'mlruns'}".replace("\\", "/")

@@ -1,9 +1,10 @@
 """Data drift detection using Evidently AI."""
 
 import json
+from pathlib import Path
+
 import pandas as pd
 import yaml
-from pathlib import Path
 from evidently import Report
 from evidently.presets import DataDriftPreset
 
@@ -32,7 +33,12 @@ def compute_drift_report(
         Dict with drift summary including overall drift score and per-feature results.
     """
     # Select only numeric columns that exist in both datasets
-    common_cols = [c for c in reference.columns if c in current.columns and reference[c].dtype in ["float64", "int64", "float32", "int32"]]
+    numeric_dtypes = ["float64", "int64", "float32", "int32"]
+    common_cols = [
+        c
+        for c in reference.columns
+        if c in current.columns and reference[c].dtype in numeric_dtypes
+    ]
 
     ref_subset = reference[common_cols]
     cur_subset = current[common_cols]

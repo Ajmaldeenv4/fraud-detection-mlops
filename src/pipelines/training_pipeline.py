@@ -4,15 +4,15 @@ import pandas as pd
 from prefect import flow, task
 
 from src.data.ingest import load_raw_data
-from src.data.validate import validate_raw, validate_features
-from src.data.split import stratified_split, get_xy
+from src.data.split import get_xy, stratified_split
+from src.data.validate import validate_features, validate_raw
 from src.features.engineer import engineer_features
+from src.registry.promote import promote_if_better
 from src.training.train import (
     setup_mlflow,
     train_logistic_regression,
     train_xgboost,
 )
-from src.registry.promote import promote_if_better
 
 
 @task(name="load-data", retries=1)

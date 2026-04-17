@@ -33,7 +33,7 @@ def sample_features(sample_raw_data):
 @pytest.fixture
 def sample_split(sample_features):
     """Create train/val/test split from sample data."""
-    from src.data.split import stratified_split, get_xy
+    from src.data.split import get_xy, stratified_split
 
     train, val, test = stratified_split(sample_features, test_size=0.2, val_size=0.2)
     X_train, y_train = get_xy(train)

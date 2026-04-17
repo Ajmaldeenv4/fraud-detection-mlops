@@ -1,9 +1,10 @@
 """Feature engineering module — create derived features from raw transaction data."""
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import yaml
-from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -66,6 +67,12 @@ if __name__ == "__main__":
     df = load_raw_data()
     df = engineer_features(df)
     print(f"Features: {list(df.columns)}")
-    print(f"\nNew feature stats:")
-    for col in ["hour_of_day", "amount_log", "amount_rolling_mean", "amount_rolling_std", "is_night"]:
+    print("\nNew feature stats:")
+    for col in [
+        "hour_of_day",
+        "amount_log",
+        "amount_rolling_mean",
+        "amount_rolling_std",
+        "is_night",
+    ]:  # noqa: E501
         print(f"  {col}: mean={df[col].mean():.3f}, std={df[col].std():.3f}")

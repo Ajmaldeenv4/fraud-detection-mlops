@@ -1,5 +1,6 @@
 """Model evaluation module — metrics focused on imbalanced classification."""
 
+import mlflow
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
@@ -7,10 +8,8 @@ from sklearn.metrics import (
     classification_report,
     confusion_matrix,
     f1_score,
-    precision_recall_curve,
     roc_auc_score,
 )
-import mlflow
 
 
 def evaluate_model(
@@ -70,4 +69,5 @@ def log_confusion_matrix(
     mlflow.log_artifact(artifact_path)
 
     import os
+
     os.remove(artifact_path)

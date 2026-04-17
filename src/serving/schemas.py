@@ -42,7 +42,11 @@ class PredictionRequest(BaseModel):
     V28: float = 0.0
     Amount: float = Field(..., ge=0, description="Transaction amount")
 
-    model_config = {"json_schema_extra": {"examples": [{"Time": 0.0, "Amount": 149.62, "V1": -1.36, "V2": -0.07}]}}
+    model_config = {
+        "json_schema_extra": {
+            "examples": [{"Time": 0.0, "Amount": 149.62, "V1": -1.36, "V2": -0.07}]
+        }
+    }
 
 
 class PredictionResponse(BaseModel):

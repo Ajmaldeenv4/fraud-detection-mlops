@@ -1,8 +1,8 @@
 """Tests for the FastAPI prediction API."""
 
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -71,9 +71,12 @@ class TestPredictEndpoint:
 
     def test_predict_no_model_returns_503(self, client, mock_predictor):
         mock_predictor.model = None
-        response = client.post("/predict", json={
-            "Time": 0.0,
-            "Amount": 100.0,
-            **{f"V{i}": 0.0 for i in range(1, 29)},
-        })
+        response = client.post(
+            "/predict",
+            json={
+                "Time": 0.0,
+                "Amount": 100.0,
+                **{f"V{i}": 0.0 for i in range(1, 29)},
+            },
+        )
         assert response.status_code == 503

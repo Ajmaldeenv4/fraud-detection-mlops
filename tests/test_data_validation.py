@@ -1,11 +1,10 @@
 """Tests for data validation."""
 
 import numpy as np
-import pandas as pd
 import pandera as pa
 import pytest
 
-from src.data.validate import validate_raw, validate_features
+from src.data.validate import validate_features, validate_raw
 
 
 class TestRawValidation:

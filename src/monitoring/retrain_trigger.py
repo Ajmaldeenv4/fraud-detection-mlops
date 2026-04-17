@@ -36,10 +36,12 @@ def log_retrain(reason: str):
     if RETRAIN_LOG.exists():
         with open(RETRAIN_LOG) as f:
             log = json.load(f)
-    log.append({
-        "timestamp": datetime.now().isoformat(),
-        "reason": reason,
-    })
+    log.append(
+        {
+            "timestamp": datetime.now().isoformat(),
+            "reason": reason,
+        }
+    )
     with open(RETRAIN_LOG, "w") as f:
         json.dump(log, f, indent=2)
 

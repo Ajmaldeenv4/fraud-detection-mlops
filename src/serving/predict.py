@@ -2,13 +2,14 @@
 
 import os
 import time
+from pathlib import Path
+
+import mlflow.pyfunc
+import mlflow.sklearn
+import mlflow.xgboost
 import numpy as np
 import pandas as pd
 import yaml
-import mlflow.pyfunc
-import mlflow.xgboost
-import mlflow.sklearn
-from pathlib import Path
 
 from src.features.engineer import engineer_features
 
@@ -49,6 +50,7 @@ class FraudPredictor:
         model_stage = self.config["model_stage"]
 
         from mlflow.tracking import MlflowClient
+
         client = MlflowClient()
 
         try:
@@ -58,7 +60,11 @@ class FraudPredictor:
 
             # Find Production version first, fallback to latest
             prod_versions = [v for v in versions if v.current_stage == model_stage]
-            target = prod_versions[0] if prod_versions else sorted(versions, key=lambda v: int(v.version))[-1]
+            target = (
+                prod_versions[0]
+                if prod_versions
+                else sorted(versions, key=lambda v: int(v.version))[-1]
+            )
 
             source = target.source  # e.g. "models:/m-427e36460aed4f87a3a3090335c24437"
 
@@ -122,7 +128,8 @@ class FraudPredictor:
         else:
             # pyfunc models return predictions directly
             pred = self.model.predict(df)
-            prob = float(pred[0]) if np.isscalar(pred[0]) or pred[0].ndim == 0 else float(pred[0][1])
+            scalar = np.isscalar(pred[0]) or pred[0].ndim == 0
+            prob = float(pred[0]) if scalar else float(pred[0][1])
 
         decision = "block" if prob >= self.threshold else "allow"
         latency_ms = (time.perf_counter() - start) * 1000

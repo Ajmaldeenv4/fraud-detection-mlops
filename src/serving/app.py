@@ -5,9 +5,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from src.serving.schemas import PredictionRequest, PredictionResponse, HealthResponse
-from src.serving.predict import FraudPredictor
 from src.monitoring.metrics import track_prediction
+from src.serving.predict import FraudPredictor
+from src.serving.schemas import HealthResponse, PredictionRequest, PredictionResponse
 
 
 @asynccontextmanager
