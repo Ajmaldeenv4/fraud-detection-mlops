@@ -61,13 +61,4 @@ def log_confusion_matrix(
     report = classification_report(y_true, y_pred, target_names=["Legit", "Fraud"])
 
     artifact_text = f"Confusion Matrix ({dataset_name}):\n{cm}\n\n{report}"
-    artifact_path = f"{dataset_name}_confusion_matrix.txt"
-
-    with open(artifact_path, "w") as f:
-        f.write(artifact_text)
-
-    mlflow.log_artifact(artifact_path)
-
-    import os
-
-    os.remove(artifact_path)
+    mlflow.log_text(artifact_text, f"{dataset_name}_confusion_matrix.txt")

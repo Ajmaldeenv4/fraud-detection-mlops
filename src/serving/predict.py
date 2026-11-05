@@ -1,21 +1,21 @@
 """Prediction module — load model and run inference."""
 
-import os
 import time
+from collections import deque
 from pathlib import Path
 
-import mlflow.pyfunc
+import mlflow.models
 import mlflow.sklearn
 import mlflow.xgboost
-import numpy as np
 import pandas as pd
 import yaml
+from mlflow.entities.model_registry import ModelVersion
+from mlflow.tracking import MlflowClient
 
-from src.features.engineer import engineer_features
+from src.features.engineer import engineer_features, load_feature_config
+from src.tracking import artifact_root, configure_tracking, is_remote_store
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_DEFAULT_URI = f"file:///{PROJECT_ROOT / 'mlruns'}".replace("\\", "/")
-MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", _DEFAULT_URI)
 
 
 def load_serving_config() -> dict:
@@ -24,14 +24,36 @@ def load_serving_config() -> dict:
         return yaml.safe_load(f)
 
 
-def _uri_to_path(uri: str) -> Path:
-    """Convert a file:/// URI to a Path, handling both Windows and Linux."""
-    path_str = uri.removeprefix("file:///")
-    # Linux path: "app/mlruns" → need leading slash → "/app/mlruns"
-    # Windows path: "C:/Project/..." → already absolute, no slash needed
-    if not (len(path_str) >= 2 and path_str[1] == ":"):
-        path_str = "/" + path_str
-    return Path(path_str)
+def _resolve_model_uri(version: ModelVersion) -> str:
+    """Return a URI the model artifacts can be loaded from in this environment."""
+    if is_remote_store():
+        return f"models:/{version.name}/{version.version}"
+
+    if not version.source.startswith("models:/"):
+        return version.source
+
+    # The database records the path used at training time, which does not exist if the
+    # model was trained on the host and is served from a mounted volume in Docker.
+    # Find the artifacts under this environment's store using the model ID instead.
+    model_id = version.source.removeprefix("models:/")
+    matches = list(artifact_root().glob(f"**/models/{model_id}/artifacts"))
+    if not matches:
+        raise RuntimeError(f"Model artifact for '{model_id}' not found under {artifact_root()}")
+    return str(matches[0])
+
+
+def _load_native_model(model_uri: str):
+    """Load a model in its native flavor so predict_proba is available.
+
+    pyfunc is deliberately not a fallback: it returns class labels (0/1), which would
+    be reported to callers as fraud probabilities.
+    """
+    flavors = mlflow.models.get_model_info(model_uri).flavors
+    if "xgboost" in flavors:
+        return mlflow.xgboost.load_model(model_uri)
+    if "sklearn" in flavors:
+        return mlflow.sklearn.load_model(model_uri)
+    raise RuntimeError(f"Unsupported model flavors: {sorted(flavors)}")
 
 
 class FraudPredictor:
@@ -42,61 +64,28 @@ class FraudPredictor:
         self.model_version = None
         self.config = load_serving_config()
         self.threshold = self.config["decision_threshold"]
+        # The rolling window covers the current row plus the previous window-1 amounts.
+        window = load_feature_config()["rolling_windows"]["amount_window"]
+        self.amount_history = deque(maxlen=window - 1)
 
     def load_model(self):
         """Load the Production model from MLflow Model Registry."""
-        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+        configure_tracking()
         model_name = self.config["model_name"]
         model_stage = self.config["model_stage"]
-
-        from mlflow.tracking import MlflowClient
 
         client = MlflowClient()
 
         try:
             versions = client.search_model_versions(f"name='{model_name}'")
-            if not versions:
-                raise RuntimeError(f"No model found in registry: {model_name}")
 
-            # Find Production version first, fallback to latest
-            prod_versions = [v for v in versions if v.current_stage == model_stage]
-            target = (
-                prod_versions[0]
-                if prod_versions
-                else sorted(versions, key=lambda v: int(v.version))[-1]
-            )
+            # Never fall back to another stage: those versions failed the promotion check.
+            candidates = [v for v in versions if v.current_stage == model_stage]
+            if not candidates:
+                raise RuntimeError(f"No {model_stage} version in the registry")
+            target = max(candidates, key=lambda v: int(v.version))
 
-            source = target.source  # e.g. "models:/m-427e36460aed4f87a3a3090335c24437"
-
-            if source.startswith("models:/"):
-                # File-based registry stores the artifact at:
-                #   {tracking_root}/{experiment_id}/models/{model_id}/artifacts/
-                # The stored host path is wrong inside Docker, so search the
-                # mounted filesystem directly using the model ID.
-                model_id = source.removeprefix("models:/")
-                tracking_root = _uri_to_path(MLFLOW_TRACKING_URI)
-                matches = list(tracking_root.glob(f"*/models/{model_id}/artifacts"))
-                if not matches:
-                    raise RuntimeError(
-                        f"Model artifact for '{model_id}' not found under {tracking_root}"
-                    )
-                model_uri = str(matches[0])
-            elif "mlruns/" in source:
-                # Direct file path — rewrite host prefix to our tracking root
-                relative = source.split("mlruns/", 1)[1]
-                model_uri = f"{MLFLOW_TRACKING_URI.rstrip('/')}/{relative}"
-            else:
-                model_uri = source
-
-            # Load with native flavor (xgboost/sklearn) so predict_proba is available.
-            # pyfunc.load_model returns class labels (0/1), not probabilities.
-            try:
-                self.model = mlflow.xgboost.load_model(model_uri)
-            except Exception:
-                try:
-                    self.model = mlflow.sklearn.load_model(model_uri)
-                except Exception:
-                    self.model = mlflow.pyfunc.load_model(model_uri)
+            self.model = _load_native_model(_resolve_model_uri(target))
             self.model_version = f"{target.current_stage} (v{target.version})"
         except Exception as e:
             raise RuntimeError(f"Failed to load model '{model_name}': {e}") from e
@@ -115,21 +104,16 @@ class FraudPredictor:
         # Create DataFrame from single transaction
         df = pd.DataFrame([features])
 
-        # Apply feature engineering
-        df = engineer_features(df)
+        # Apply feature engineering, continuing the rolling window from earlier requests
+        df = engineer_features(df, amount_history=self.amount_history)
+        self.amount_history.append(features["Amount"])
 
         # Drop target if present
         if "Class" in df.columns:
             df = df.drop(columns=["Class"])
 
         # Predict
-        if hasattr(self.model, "predict_proba"):
-            prob = float(self.model.predict_proba(df)[0, 1])
-        else:
-            # pyfunc models return predictions directly
-            pred = self.model.predict(df)
-            scalar = np.isscalar(pred[0]) or pred[0].ndim == 0
-            prob = float(pred[0]) if scalar else float(pred[0][1])
+        prob = float(self.model.predict_proba(df)[0, 1])
 
         decision = "block" if prob >= self.threshold else "allow"
         latency_ms = (time.perf_counter() - start) * 1000

@@ -35,6 +35,12 @@ Thumbs.db
 # Docker
 docker/volumes/
 
+# Test and lint output
+.coverage
+coverage.xml
+.pytest_cache/
+.ruff_cache/
+
 # Misc
 *.log
 .env

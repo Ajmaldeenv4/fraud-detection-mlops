@@ -3,11 +3,16 @@ drift:
   current_data: "data/predictions/recent.csv"
   report_output: "reports/drift_report.html"
 
-  # Kolmogorov-Smirnov threshold for data drift
-  drift_threshold: 0.1
+  # A column counts as drifted when its Jensen-Shannon distance exceeds this
+  column_threshold: 0.15
 
-  # Minimum number of predictions before checking drift
-  min_samples: 100
+  # Data has drifted when more than this share of columns drifted. Together with
+  # column_threshold, this sits above the normal swing across a day of transactions.
+  drift_threshold: 0.15
+
+  # Minimum number of predictions before checking drift. Shorter stretches of real
+  # transactions are too dominated by the time of day to compare fairly.
+  min_samples: 1000
 
 retrain:
   auto_retrain: true

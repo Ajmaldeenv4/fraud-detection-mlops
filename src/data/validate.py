@@ -1,7 +1,7 @@
 """Data validation module — Pandera schemas for raw and processed data."""
 
 import pandas as pd
-from pandera import Check, Column, DataFrameSchema
+from pandera.pandas import Check, Column, DataFrameSchema
 
 # Schema for the raw Kaggle credit card fraud dataset
 raw_schema = DataFrameSchema(

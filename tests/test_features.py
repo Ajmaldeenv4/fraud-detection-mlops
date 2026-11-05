@@ -1,5 +1,7 @@
 """Tests for feature engineering."""
 
+import pytest
+
 from src.features.engineer import engineer_features
 
 
@@ -36,3 +38,19 @@ class TestFeatureEngineering:
         original_cols = set(sample_raw_data.columns)
         result = engineer_features(sample_raw_data)
         assert original_cols.issubset(set(result.columns))
+
+    def test_amount_history_reproduces_batch_rolling_features(self, sample_raw_data):
+        batch = engineer_features(sample_raw_data)
+
+        row = 10
+        single = engineer_features(
+            sample_raw_data.iloc[[row]],
+            amount_history=sample_raw_data["Amount"].iloc[row - 4 : row].tolist(),
+        )
+
+        assert single["amount_rolling_mean"].iloc[0] == pytest.approx(
+            batch["amount_rolling_mean"].iloc[row]
+        )
+        assert single["amount_rolling_std"].iloc[0] == pytest.approx(
+            batch["amount_rolling_std"].iloc[row]
+        )

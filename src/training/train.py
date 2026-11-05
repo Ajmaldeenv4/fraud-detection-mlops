@@ -1,6 +1,5 @@
 """Model training module — LogisticRegression and XGBoost."""
 
-import os
 from pathlib import Path
 
 import mlflow
@@ -9,14 +8,15 @@ import mlflow.xgboost
 import pandas as pd
 import yaml
 from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline, make_pipeline
+from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 
+from src.tracking import artifact_root, configure_tracking, is_remote_store
 from src.training.evaluate import evaluate_model, log_confusion_matrix, log_metrics_to_mlflow
 from src.training.imbalance import apply_smote, compute_scale_pos_weight
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_DEFAULT_URI = f"file:///{PROJECT_ROOT / 'mlruns'}".replace("\\", "/")
-MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", _DEFAULT_URI)
 
 
 def load_model_config() -> dict:
@@ -28,9 +28,12 @@ def load_model_config() -> dict:
 
 def setup_mlflow():
     """Configure MLflow tracking."""
-    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-    config = load_model_config()
-    mlflow.set_experiment(config["experiment_name"])
+    configure_tracking()
+    experiment_name = load_model_config()["experiment_name"]
+    # Keep local artifacts in the store directory rather than wherever Python was started.
+    if not is_remote_store() and mlflow.get_experiment_by_name(experiment_name) is None:
+        mlflow.create_experiment(experiment_name, artifact_location=artifact_root().as_uri())
+    mlflow.set_experiment(experiment_name)
 
 
 def train_logistic_regression(
@@ -38,10 +41,12 @@ def train_logistic_regression(
     y_train: pd.Series,
     X_val: pd.DataFrame,
     y_val: pd.Series,
-) -> tuple[LogisticRegression, dict]:
+) -> tuple[Pipeline, dict]:
     """Train a Logistic Regression baseline model.
 
-    Uses class_weight='balanced' to handle imbalance without SMOTE.
+    Uses class_weight='balanced' to handle imbalance without SMOTE. Features are
+    scaled first because Time and Amount are orders of magnitude larger than V1-V28,
+    which stops lbfgs from converging.
     """
     config = load_model_config()["logistic_regression"]
 
@@ -49,7 +54,7 @@ def train_logistic_regression(
         mlflow.log_params(config)
         mlflow.set_tag("model_type", "logistic_regression")
 
-        model = LogisticRegression(**config)
+        model = make_pipeline(StandardScaler(), LogisticRegression(**config))
         model.fit(X_train, y_train)
 
         # Evaluate
@@ -63,7 +68,7 @@ def train_logistic_regression(
         log_confusion_matrix(y_val, y_pred, "val")
 
         # Log model
-        mlflow.sklearn.log_model(model, "model")
+        mlflow.sklearn.log_model(model, name="model")
 
         return model, {**all_metrics, "run_id": run.info.run_id}
 
@@ -113,6 +118,19 @@ def train_xgboost(
         log_confusion_matrix(y_val, y_pred, "val")
 
         # Log model
-        mlflow.xgboost.log_model(model, "model")
+        mlflow.xgboost.log_model(model, name="model")
 
         return model, {**all_metrics, "run_id": run.info.run_id}
+
+
+def evaluate_on_test(model, X_test: pd.DataFrame, y_test: pd.Series, run_id: str) -> dict:
+    """Score a selected model on the held-out test set and log it to its own run.
+
+    Model selection and promotion use validation metrics, so this is the unbiased
+    estimate of how the chosen model will perform.
+    """
+    with mlflow.start_run(run_id=run_id):
+        metrics = evaluate_model(model, X_test, y_test, "test")
+        log_metrics_to_mlflow(metrics)
+        log_confusion_matrix(y_test, model.predict(X_test), "test")
+    return metrics

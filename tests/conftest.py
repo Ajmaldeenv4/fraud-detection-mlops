@@ -1,5 +1,7 @@
 """Shared test fixtures."""
 
+import shutil
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -40,3 +42,30 @@ def sample_split(sample_features):
     X_val, y_val = get_xy(val)
     X_test, y_test = get_xy(test)
     return X_train, y_train, X_val, y_val, X_test, y_test
+
+
+@pytest.fixture(scope="session")
+def _mlflow_db_template(tmp_path_factory):
+    """Build the MLflow schema once; running its migrations for every test is slow."""
+    import mlflow
+    from mlflow.tracking import MlflowClient
+
+    path = tmp_path_factory.mktemp("mlflow_template") / "mlflow.db"
+    uri = f"sqlite:///{path.as_posix()}"
+    MlflowClient(tracking_uri=uri).search_experiments()
+    mlflow.set_tracking_uri(uri)
+    return path
+
+
+@pytest.fixture
+def mlflow_store(tmp_path, monkeypatch, _mlflow_db_template):
+    """Point tracking and the registry at an isolated local store."""
+    from src.training.train import setup_mlflow
+
+    root = tmp_path / "mlruns"
+    root.mkdir()
+    shutil.copy(_mlflow_db_template, root / "mlflow.db")
+    monkeypatch.setenv("MLFLOW_ARTIFACT_ROOT", str(root))
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+    setup_mlflow()
+    return root

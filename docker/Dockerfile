@@ -2,8 +2,11 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-COPY pyproject.toml .
-RUN pip install --no-cache-dir .
+# Install the exact versions in uv.lock so the image matches local development
+COPY pyproject.toml uv.lock ./
+RUN pip install --no-cache-dir uv \
+    && uv export --frozen --no-emit-project -o requirements.lock \
+    && pip install --no-cache-dir -r requirements.lock
 
 FROM python:3.11-slim
 

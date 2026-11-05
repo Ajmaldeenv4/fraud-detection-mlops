@@ -1,39 +1,42 @@
-.PHONY: setup train serve test lint docker-up drift-check promote clean
+.PHONY: setup train serve test lint format docker-up docker-down drift-check monitor promote mlflow-ui clean
 
 setup:
-	pip install -e ".[dev]"
+	uv sync --extra dev
 
 train:
-	python -m src.pipelines.training_pipeline
+	uv run python -m src.pipelines.training_pipeline
 
 serve:
-	uvicorn src.serving.app:app --reload --port 8000
+	uv run uvicorn src.serving.app:app --reload --port 8000
 
 test:
-	pytest tests/ -v --cov=src --cov-report=term
+	uv run pytest tests/ -v --cov=src --cov-report=term
 
 lint:
-	ruff check src/ tests/
-	ruff format --check src/ tests/
+	uv run ruff check src/ tests/ send_predictions.py
+	uv run ruff format --check src/ tests/ send_predictions.py
 
 format:
-	ruff format src/ tests/
-	ruff check --fix src/ tests/
+	uv run ruff format src/ tests/ send_predictions.py
+	uv run ruff check --fix src/ tests/ send_predictions.py
 
 docker-up:
-	docker-compose -f docker/docker-compose.yml up --build
+	docker compose -f docker/docker-compose.yml up --build
 
 docker-down:
-	docker-compose -f docker/docker-compose.yml down
+	docker compose -f docker/docker-compose.yml down
 
 drift-check:
-	python -m src.pipelines.monitoring_pipeline
+	uv run python -m src.pipelines.monitoring_pipeline
+
+monitor:
+	uv run python -m src.pipelines.monitoring_pipeline --serve
 
 promote:
-	python -m src.registry.promote
+	uv run python -m src.registry.promote
 
 mlflow-ui:
-	mlflow ui --backend-store-uri file:///C:/Project/Fraud_Detection/mlruns
+	uv run mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

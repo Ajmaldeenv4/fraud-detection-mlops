@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: fraud-detection-api:latest
+          image: ghcr.io/ajmaldeenv4/fraud-detection-api:latest
           ports:
             - containerPort: 8000
           resources:
@@ -34,7 +34,7 @@ spec:
             periodSeconds: 30
           readinessProbe:
             httpGet:
-              path: /health
+              path: /ready
               port: 8000
             initialDelaySeconds: 10
             periodSeconds: 10

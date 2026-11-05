@@ -1,8 +1,11 @@
 """Monitoring pipeline — Prefect flow for periodic drift checks and retraining."""
 
+import argparse
+from datetime import timedelta
+
 from prefect import flow, task
 
-from src.monitoring.drift import check_drift
+from src.monitoring.drift import check_drift, load_monitoring_config
 from src.monitoring.retrain_trigger import trigger_retrain_if_needed
 
 
@@ -12,6 +15,8 @@ def check_drift_task() -> dict:
     result = check_drift()
     if result.get("is_drifted"):
         print(f"DRIFT DETECTED: {result['n_drifted_columns']} columns drifted")
+    elif result.get("error"):
+        print(f"Drift check skipped: {result['error']}")
     else:
         print(f"No drift: {result.get('message', result.get('drift_share', 'N/A'))}")
     return result
@@ -37,5 +42,20 @@ def monitoring_flow():
     return drift_result
 
 
+def serve_monitoring() -> None:
+    """Run the monitoring flow on the interval from monitoring_config.yaml."""
+    interval = load_monitoring_config()["schedule"]["interval_minutes"]
+    monitoring_flow.serve(name="drift-check", interval=timedelta(minutes=interval))
+
+
 if __name__ == "__main__":
-    monitoring_flow()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="keep running and check on the configured schedule instead of checking once",
+    )
+    if parser.parse_args().serve:
+        serve_monitoring()
+    else:
+        monitoring_flow()

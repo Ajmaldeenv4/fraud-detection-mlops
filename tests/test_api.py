@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from prometheus_client import REGISTRY
 
 
 @pytest.fixture
@@ -80,3 +81,28 @@ class TestPredictEndpoint:
             },
         )
         assert response.status_code == 503
+
+    def test_predict_records_fraud_probability_metric(self, client):
+        before = REGISTRY.get_sample_value("fraud_probability_distribution_sum") or 0.0
+
+        response = client.post(
+            "/predict",
+            json={"Time": 0.0, "Amount": 1.0, **{f"V{i}": 0.0 for i in range(1, 29)}},
+        )
+
+        assert response.status_code == 200
+        after = REGISTRY.get_sample_value("fraud_probability_distribution_sum")
+        assert after - before == pytest.approx(0.85)
+
+
+class TestReadyEndpoint:
+    def test_ready_with_model(self, client):
+        response = client.get("/ready")
+        assert response.status_code == 200
+        assert response.json()["model_version"] == "test-v1"
+
+    def test_not_ready_without_model(self, client, mock_predictor):
+        mock_predictor.model = None
+        assert client.get("/ready").status_code == 503
+        # Liveness must stay green so the pod isn't restarted while waiting for a model.
+        assert client.get("/health").status_code == 200

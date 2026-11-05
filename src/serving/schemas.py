@@ -62,3 +62,6 @@ class HealthResponse(BaseModel):
 
     status: str = "healthy"
     model_version: str | None = None
+
+    # Allow the model_version field name, which Pydantic reserves by default
+    model_config = {"protected_namespaces": ()}
