@@ -1,5 +1,6 @@
 """Feature engineering module — create derived features from raw transaction data."""
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -16,7 +17,10 @@ def load_feature_config() -> dict:
         return yaml.safe_load(f)
 
 
-def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
+def engineer_features(
+    df: pd.DataFrame,
+    amount_history: Sequence[float] | None = None,
+) -> pd.DataFrame:
     """Apply feature engineering to the raw dataset.
 
     Creates:
@@ -29,6 +33,12 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     Note: The Kaggle dataset has no cardholder ID, so rolling features
     use positional windows rather than per-user windows. In production,
     you would group by cardholder.
+
+    Args:
+        df: Raw transactions in arrival order.
+        amount_history: Amounts seen immediately before df. Serving scores one row
+            at a time, so without this the rolling features would collapse to
+            mean=Amount, std=0 and no longer match what the model was trained on.
     """
     config = load_feature_config()
     df = df.copy()
@@ -49,8 +59,11 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # Rolling features (positional window — no cardholder ID available)
     window = config["rolling_windows"]["amount_window"]
-    df["amount_rolling_mean"] = df["Amount"].rolling(window=window, min_periods=1).mean()
-    df["amount_rolling_std"] = df["Amount"].rolling(window=window, min_periods=1).std().fillna(0)
+    history = list(amount_history or [])
+    amounts = pd.Series([*history, *df["Amount"]], dtype=float)
+    rolling = amounts.rolling(window=window, min_periods=1)
+    df["amount_rolling_mean"] = rolling.mean().iloc[len(history) :].to_numpy()
+    df["amount_rolling_std"] = rolling.std().fillna(0).iloc[len(history) :].to_numpy()
 
     return df
 

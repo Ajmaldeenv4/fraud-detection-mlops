@@ -10,6 +10,10 @@ from evidently.presets import DataDriftPreset
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+# Time counts seconds since the first transaction, so live values always sit outside
+# the training range. That is a clock, not a change in the data.
+EXCLUDED_COLUMNS = {"Time"}
+
 
 def load_monitoring_config() -> dict:
     config_path = PROJECT_ROOT / "configs" / "monitoring_config.yaml"
@@ -21,13 +25,20 @@ def compute_drift_report(
     reference: pd.DataFrame,
     current: pd.DataFrame,
     output_path: Path | None = None,
+    column_threshold: float = 0.15,
 ) -> dict:
     """Generate an Evidently data drift report.
+
+    Scores each column with Jensen-Shannon distance, which measures how large a
+    difference is. Tests of whether a difference is detectable don't work here: real
+    transactions change through the day, so at this volume a Kolmogorov-Smirnov test
+    flags nearly every column in every window, even with no real change in the data.
 
     Args:
         reference: Training data (baseline distribution).
         current: Recent prediction data.
         output_path: Optional path to save HTML report.
+        column_threshold: Distance above which a single column counts as drifted.
 
     Returns:
         Dict with drift summary including overall drift score and per-feature results.
@@ -37,13 +48,15 @@ def compute_drift_report(
     common_cols = [
         c
         for c in reference.columns
-        if c in current.columns and reference[c].dtype in numeric_dtypes
+        if c in current.columns
+        and c not in EXCLUDED_COLUMNS
+        and reference[c].dtype in numeric_dtypes
     ]
 
     ref_subset = reference[common_cols]
     cur_subset = current[common_cols]
 
-    report = Report([DataDriftPreset()])
+    report = Report([DataDriftPreset(method="jensenshannon", threshold=column_threshold)])
     snapshot = report.run(reference_data=ref_subset, current_data=cur_subset)
 
     # Save HTML report
@@ -88,7 +101,8 @@ def check_drift(
         }
 
     report_path = PROJECT_ROOT / config["drift"]["report_output"]
-    result = compute_drift_report(reference, current, report_path)
+    column_threshold = config["drift"]["column_threshold"]
+    result = compute_drift_report(reference, current, report_path, column_threshold)
 
     # Extract drift summary from Evidently 0.7.x snapshot structure
     metrics = result.get("metrics", [])

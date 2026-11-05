@@ -44,6 +44,15 @@ async def health():
     )
 
 
+@app.get("/ready", response_model=HealthResponse)
+async def ready():
+    """Readiness check: 503 until a model is loaded, so no traffic is routed here."""
+    predictor = app.state.predictor
+    if predictor.model is None:
+        raise HTTPException(status_code=503, detail="Model not loaded.")
+    return HealthResponse(status="ready", model_version=predictor.model_version)
+
+
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(request: PredictionRequest):
     """Predict whether a transaction is fraudulent.
@@ -58,7 +67,7 @@ async def predict(request: PredictionRequest):
     result = predictor.predict(features)
 
     # Track metrics for Prometheus
-    track_prediction(result["decision"], result["latency_ms"])
+    track_prediction(result["decision"], result["latency_ms"], result["fraud_probability"])
 
     # Log for drift monitoring
     predictor.log_prediction(features, result)

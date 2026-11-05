@@ -1,5 +1,7 @@
 """Training pipeline — Prefect flow orchestrating the full training DAG."""
 
+from pathlib import Path
+
 import pandas as pd
 from prefect import flow, task
 
@@ -9,10 +11,13 @@ from src.data.validate import validate_features, validate_raw
 from src.features.engineer import engineer_features
 from src.registry.promote import promote_if_better
 from src.training.train import (
+    evaluate_on_test,
     setup_mlflow,
     train_logistic_regression,
     train_xgboost,
 )
+
+REFERENCE_PATH = Path(__file__).resolve().parents[2] / "data" / "processed" / "reference.csv"
 
 
 @task(name="load-data", retries=1)
@@ -55,11 +60,8 @@ def split_data_task(
     train_df, val_df, test_df = stratified_split(df)
 
     # Save reference data for drift detection later
-    from pathlib import Path
-
-    ref_path = Path("data/processed/reference.csv")
-    ref_path.parent.mkdir(parents=True, exist_ok=True)
-    train_df.to_csv(ref_path, index=False)
+    REFERENCE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    train_df.to_csv(REFERENCE_PATH, index=False)
 
     X_train, y_train = get_xy(train_df)
     X_val, y_val = get_xy(val_df)
@@ -74,7 +76,7 @@ def train_lr_task(X_train, y_train, X_val, y_val):
     """Train Logistic Regression baseline."""
     model, metrics = train_logistic_regression(X_train, y_train, X_val, y_val)
     print(f"LR — val_pr_auc: {metrics['val_pr_auc']:.4f}")
-    return metrics
+    return model, metrics
 
 
 @task(name="train-xgboost")
@@ -82,29 +84,30 @@ def train_xgb_task(X_train, y_train, X_val, y_val):
     """Train XGBoost model."""
     model, metrics = train_xgboost(X_train, y_train, X_val, y_val, use_smote=True)
     print(f"XGB — val_pr_auc: {metrics['val_pr_auc']:.4f}")
+    return model, metrics
+
+
+@task(name="evaluate-on-test-set")
+def evaluate_test_task(model, run_id: str, X_test, y_test) -> dict:
+    """Score the selected model on the held-out test set."""
+    metrics = evaluate_on_test(model, X_test, y_test, run_id)
+    print(
+        f"Test set — pr_auc: {metrics['test_pr_auc']:.4f}, "
+        f"precision: {metrics['test_precision']:.4f}, recall: {metrics['test_recall']:.4f}"
+    )
     return metrics
 
 
-@task(name="select-and-promote-best")
-def promote_best_task(lr_metrics: dict, xgb_metrics: dict) -> str:
-    """Select the best model and attempt promotion to Production."""
-    # Pick the model with higher val_pr_auc
-    if xgb_metrics["val_pr_auc"] >= lr_metrics["val_pr_auc"]:
-        best = xgb_metrics
-        best_name = "XGBoost"
-    else:
-        best = lr_metrics
-        best_name = "LogisticRegression"
-
-    print(f"Best model: {best_name} (val_pr_auc: {best['val_pr_auc']:.4f})")
-
-    promoted = promote_if_better(best["run_id"])
+@task(name="promote-best")
+def promote_best_task(best_name: str, run_id: str) -> str:
+    """Attempt promotion of the selected model to Production."""
+    promoted = promote_if_better(run_id)
     return f"{'Promoted' if promoted else 'Staged'}: {best_name}"
 
 
 @flow(name="fraud-detection-training", log_prints=True)
 def training_flow():
-    """Full training pipeline: load -> validate -> features -> split -> train -> promote."""
+    """Full pipeline: load -> validate -> features -> split -> train -> test -> promote."""
     setup_mlflow()
 
     # Data preparation (sequential)
@@ -118,11 +121,20 @@ def training_flow():
     lr_future = train_lr_task.submit(X_train, y_train, X_val, y_val)
     xgb_future = train_xgb_task.submit(X_train, y_train, X_val, y_val)
 
-    lr_metrics = lr_future.result()
-    xgb_metrics = xgb_future.result()
+    lr_model, lr_metrics = lr_future.result()
+    xgb_model, xgb_metrics = xgb_future.result()
+
+    # Select on validation PR-AUC; the test set stays out of the decision
+    if xgb_metrics["val_pr_auc"] >= lr_metrics["val_pr_auc"]:
+        best_name, best_model, best_metrics = "XGBoost", xgb_model, xgb_metrics
+    else:
+        best_name, best_model, best_metrics = "LogisticRegression", lr_model, lr_metrics
+    print(f"Best model: {best_name} (val_pr_auc: {best_metrics['val_pr_auc']:.4f})")
+
+    evaluate_test_task(best_model, best_metrics["run_id"], X_test, y_test)
 
     # Promote best model
-    result = promote_best_task(lr_metrics, xgb_metrics)
+    result = promote_best_task(best_name, best_metrics["run_id"])
     print(f"\nPipeline complete: {result}")
 
 

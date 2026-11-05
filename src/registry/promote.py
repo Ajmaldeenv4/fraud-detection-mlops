@@ -1,15 +1,14 @@
 """Model registry and promotion — MLflow Model Registry management."""
 
-import os
 from pathlib import Path
 
 import mlflow
 import yaml
 from mlflow.tracking import MlflowClient
 
+from src.tracking import configure_tracking
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_DEFAULT_URI = f"file:///{PROJECT_ROOT / 'mlruns'}".replace("\\", "/")
-MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", _DEFAULT_URI)
 
 
 def load_config() -> dict:
@@ -23,7 +22,7 @@ def register_model(run_id: str, model_name: str | None = None) -> str:
 
     Returns the model version string.
     """
-    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+    configure_tracking()
     config = load_config()
     model_name = model_name or config["model_name"]
 
@@ -37,24 +36,22 @@ def get_production_model_version(model_name: str | None = None) -> dict | None:
 
     Returns dict with 'version', 'run_id', and metrics, or None if no Production model.
     """
-    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+    configure_tracking()
     config = load_config()
     model_name = model_name or config["model_name"]
     client = MlflowClient()
 
-    try:
-        # Search for versions with Production alias
-        versions = client.search_model_versions(f"name='{model_name}'")
-        for v in versions:
-            if v.current_stage == "Production":
-                run = client.get_run(v.run_id)
-                return {
-                    "version": v.version,
-                    "run_id": v.run_id,
-                    "metrics": run.data.metrics,
-                }
-    except Exception:
-        pass
+    # Registry errors must propagate: returning None here would mean "no Production
+    # model yet", and the candidate would be promoted without being compared.
+    versions = client.search_model_versions(f"name='{model_name}'")
+    for v in versions:
+        if v.current_stage == "Production":
+            run = client.get_run(v.run_id)
+            return {
+                "version": v.version,
+                "run_id": v.run_id,
+                "metrics": run.data.metrics,
+            }
 
     return None
 
@@ -77,10 +74,10 @@ def promote_if_better(
     Returns:
         True if promoted, False otherwise.
     """
-    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+    configure_tracking()
     config = load_config()
     model_name = model_name or config["model_name"]
-    threshold = threshold or config["promotion"]["threshold"]
+    threshold = config["promotion"]["threshold"] if threshold is None else threshold
     client = MlflowClient()
 
     # Get candidate metrics
@@ -124,7 +121,7 @@ def promote_if_better(
         )
         print(
             f"Promoted v{version} (PR-AUC: {candidate_pr_auc:.4f}, "
-            f"improvement: +{improvement:.4f} over v{current_prod['version']})"
+            f"improvement: {improvement:+.4f} over v{current_prod['version']})"
         )
         return True
     else:
@@ -136,7 +133,7 @@ def promote_if_better(
         )
         print(
             f"v{version} staged but NOT promoted (PR-AUC: {candidate_pr_auc:.4f}, "
-            f"improvement: +{improvement:.4f} < threshold {threshold})"
+            f"improvement: {improvement:+.4f} < threshold {threshold})"
         )
         return False
 
